@@ -1,0 +1,37 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Análisis · SismoAlerta Colombia</title>
+<style>:root{--bg:#080A0D;--c1:#15191F;--c2:#222831;--red:#FF3038;--yel:#FFD43B;--grn:#39D98A;--fg:#F5F7FA}*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}header{padding:12px 16px;border-bottom:1px solid var(--c2);background:linear-gradient(90deg,var(--c1),var(--bg))}
+h1{margin:0;font-size:20px}h1 b{color:var(--red)}a{color:var(--yel)}small{color:#9aa4b2}.warn{background:#2a2310;color:var(--yel);padding:6px 16px;font-size:12px}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;padding:12px}.card{background:var(--c1);border:1px solid var(--c2);border-radius:10px;padding:12px}
+select,button{background:var(--c2);color:var(--fg);border:1px solid #333b47;border-radius:6px;padding:6px}canvas{width:100%;height:160px}table{width:100%;border-collapse:collapse}td,th{padding:4px;border-bottom:1px solid var(--c2);text-align:left}.big{font-size:22px;font-weight:700}</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#080A0D"><link rel="icon" href="/icon-192.png"></head><body>
+<header><a href="/">← Panel</a> · <a href="educacion.html">Aprende</a> <h1>SISMO<b>ALERTA</b> · Análisis histórico</h1></header>
+<div class="warn">Datos de catálogo USGS (fuente externa). Los modelos son experimentales y no predicen terremotos.</div>
+<main style="grid-template-columns:1fr"><div class="card">Periodo: <select id="h"><option value="168">7 días</option><option value="720" selected>30 días</option><option value="2160">90 días</option><option value="8760">1 año</option></select>
+<a id="csv"><button>Descargar CSV</button></a> <small>Se analiza lo que haya en la base de datos (ver BACKFILL_DAYS).</small></div></main>
+<main>
+<div class="card"><b>Comparador de periodos</b><div id="cmp"></div></div>
+<div class="card"><b>Sismos por día</b><canvas id="c1"></canvas></div>
+<div class="card"><b>Distribución por magnitud</b><canvas id="c2"></canvas></div>
+<div class="card"><b>Distribución por profundidad (km)</b><canvas id="c3"></canvas></div>
+<div class="card"><b>Actividad por país/región</b><canvas id="c4"></canvas></div>
+<div class="card"><b>Eventos de mayor magnitud</b><div id="top"></div></div>
+<div class="card" style="grid-column:1/-1"><b>Machine Learning (experimental)</b><div id="ml">Cargando…</div></div>
+</main><script>
+const $=i=>document.getElementById(i),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function bars(id,d,color){const c=$(id),x=c.getContext('2d');c.width=c.clientWidth;c.height=160;x.clearRect(0,0,c.width,160);if(!d.length){x.fillStyle='#9aa4b2';x.fillText('Sin datos',8,20);return}
+ const mx=Math.max(1,...d.map(v=>v.n)),w=c.width/d.length;d.forEach((v,i)=>{const h=v.n/mx*110;x.fillStyle=color;x.fillRect(i*w+2,125-h,Math.max(w-4,1),h);x.fillStyle='#F5F7FA';x.font='10px sans-serif';
+ if(d.length<=12||i%Math.ceil(d.length/8)==0)x.fillText(v.label.slice(-8),i*w+2,140);if(d.length<=12)x.fillText(v.n,i*w+2,120-h)})}
+const row=(a,b,c)=>`<tr><td>${a}</td><td>${b}</td><td>${c}</td></tr>`;
+async function load(){const h=$('h').value;$('csv').href=`/api/export.csv?hours=${h}`;
+ try{const [s,c]=await Promise.all([fetch('/api/stats?hours='+h).then(r=>r.json()),fetch('/api/compare?hours='+h).then(r=>r.json())]);
+ bars('c1',s.by_day,'#FF3038');bars('c2',s.mag_dist,'#FFD43B');bars('c3',s.depth_dist,'#39D98A');bars('c4',s.by_region.slice(0,6),'#F5F7FA');
+ const a=c.current,b=c.previous;$('cmp').innerHTML=`<table><tr><th></th><th>Actual</th><th>Anterior</th></tr>${row('Eventos',a.n,b.n)}${row('Mag. máx',a.max_mag??'–',b.max_mag??'–')}${row('Mag. media',a.mean_mag??'–',b.mean_mag??'–')}${row('Prof. media',a.mean_depth??'–',b.mean_depth??'–')}</table><p class="big">${c.count_change_pct==null?'–':(c.count_change_pct>0?'+':'')+c.count_change_pct+' %'}</p><small>Cambio en cantidad de eventos frente al periodo anterior de igual duración.</small>`;
+ $('top').innerHTML='<table>'+s.top_events.map(e=>row('M'+e.mag.toFixed(1),esc(e.place),new Date(e.time_event).toLocaleDateString('es-CO'))).join('')+'</table>'}catch(e){$('cmp').textContent='No se pudo conectar con el backend.'}}
+async function ml(){const m=await (await fetch('/api/ml')).json();
+ if(m.status=='sin_entrenar'){$('ml').innerHTML='Sin entrenar. En la terminal, desde <code>backend</code>, ejecuta <code>python ml/train.py</code> y recarga.';return}
+ if(m.status!='entrenado'){$('ml').innerHTML=`Datos insuficientes (${m.n_events} eventos). ${esc(m.detail||'')}`;return}
+ const r=m.results,f=v=>v==null?'–':v.toFixed(2);
+ $('ml').innerHTML=`<p>${esc(m.task)} · versión ${m.version} · entrenado ${new Date(m.trained_at).toLocaleString('es-CO')}<br><small>Entrenamiento hasta ${m.train_end} (${m.n_train} días) · prueba desde ${m.test_start} (${m.n_test} días) · proporción de días positivos en prueba: ${f(m.positive_rate_test)}</small></p>
+ <table><tr><th>Modelo</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC-AUC</th><th>Matriz [[TN,FP],[FN,TP]]</th></tr>${Object.entries(r).map(([k,v])=>`<tr><td>${k}${k==m.best_model?' ★':''}</td><td>${f(v.precision)}</td><td>${f(v.recall)}</td><td>${f(v.f1)}</td><td>${f(v.roc_auc)}</td><td>${JSON.stringify(v.confusion_matrix)}</td></tr>`).join('')}</table>
+ <p><small>Importancia de variables (Random Forest): ${Object.entries(m.feature_importance).map(([k,v])=>k+' '+v.toFixed(2)).join(' · ')}</small></p><p class="warn">${esc(m.warning)} Si el modelo no supera a la línea base de persistencia, no aporta información útil.</p>`}
+$('h').onchange=load;load();ml();</script><script>if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")</script></body></html>

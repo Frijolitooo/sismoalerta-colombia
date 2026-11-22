@@ -1,0 +1,14 @@
+services:
+  sismoalerta:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      POLL_SECONDS: "120"
+      BACKFILL_DAYS: "365"
+    volumes:
+      - sismo_data:/app/backend/data
+      - sismo_models:/app/backend/models
+    restart: unless-stopped
+volumes:
+  sismo_data:
+  sismo_models:

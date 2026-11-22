@@ -1,0 +1,65 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SismoAlerta Colombia</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#080A0D;--c1:#15191F;--c2:#222831;--red:#FF3038;--yel:#FFD43B;--grn:#39D98A;--fg:#F5F7FA}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--c2);background:linear-gradient(90deg,var(--c1),var(--bg))}
+h1{margin:0;font-size:20px;letter-spacing:1px}h1 b{color:var(--red)}small{color:#9aa4b2}
+.warn{background:#2a2310;color:var(--yel);padding:6px 16px;font-size:12px}
+main{display:grid;grid-template-columns:2fr 1fr;gap:12px;padding:12px}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+.card{background:var(--c1);border:1px solid var(--c2);border-radius:10px;padding:12px;box-shadow:0 0 12px #ff30380d}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px;grid-column:1/-1}
+.kpi b{display:block;font-size:22px}#map{height:420px;border-radius:8px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}select,button,input{background:var(--c2);color:var(--fg);border:1px solid #333b47;border-radius:6px;padding:6px}
+.list{max-height:300px;overflow:auto}.ev{padding:6px 0;border-bottom:1px solid var(--c2)}.m{display:inline-block;min-width:38px;font-weight:700}
+.l-info{border-left:4px solid var(--grn)}.l-precaucion{border-left:4px solid var(--yel)}.l-advertencia,.l-significativo{border-left:4px solid var(--red)}
+.al{padding:6px 8px;margin-bottom:6px;background:var(--c2);border-radius:6px}.st-conectado{color:var(--grn)}.st-error{color:var(--red)}.st-actualizando{color:var(--yel)}
+canvas{width:100%;height:150px}
+</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#080A0D"><link rel="icon" href="/icon-192.png"></head><body>
+<header><h1>SISMO<b>ALERTA</b> COLOMBIA</h1><small>Inteligencia de datos para el monitoreo y análisis de la actividad sísmica</small> <a href="analisis.html" style="float:right;color:#FFD43B">Análisis y ML →</a> <a href="educacion.html" style="float:right;color:#39D98A;margin-right:14px">Aprende</a></header>
+<div class="warn">Monitoreo de eventos ya detectados a partir de catálogos. No predice sismos ni es un sistema oficial de alerta temprana. Datos: USGS (fuente externa).</div>
+<main>
+<div class="kpis" id="kpis"></div>
+<section class="card"><div class="ctl">
+<select id="hours"><option value="1">Última hora</option><option value="24" selected>24 horas</option><option value="168">7 días</option><option value="720">30 días</option></select>
+<select id="mag"><option value="0">Todas las magnitudes</option><option value="2.5">M ≥ 2.5</option><option value="4">M ≥ 4</option><option value="5">M ≥ 5</option></select>
+<button id="center">Centrar en Colombia</button><a id="csv"><button>Exportar CSV</button></a></div><div id="map"></div></section>
+<aside><section class="card"><b>Alertas</b> <label><input type="checkbox" id="snd"> sonido</label><div id="alerts" class="list" style="max-height:140px"></div></section><br>
+<section class="card"><b>Eventos recientes</b><div id="list" class="list"></div></section></aside>
+<section class="card"><b>Sismos por día</b><canvas id="ch"></canvas></section>
+<section class="card"><b>Fuentes y estado</b><div id="src"></div></section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $=id=>document.getElementById(id),CO=[4.6,-74.1];
+const map=L.map('map').setView(CO,5);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+const layer=L.layerGroup().addTo(map);let data=[];
+const col=m=>m>=5?'#FF3038':m>=4?'#FFD43B':'#39D98A',esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=t=>new Date(t).toLocaleString('es-CO');
+async function load(){
+ const h=$('hours').value,m=$('mag').value;$('csv').href=`/api/export.csv?hours=${h}&min_mag=${m}`;
+ try{data=await (await fetch(`/api/events?hours=${h}&min_mag=${m}`)).json()}catch(e){$('list').textContent='No se pudo conectar con el backend.';return}
+ render();sources()}
+function render(){
+ layer.clearLayers();
+ data.forEach(e=>L.circleMarker([e.lat,e.lon],{radius:3+e.mag*2,color:col(e.mag),fillOpacity:.5,weight:1}).bindPopup(
+  `<b>M${e.mag.toFixed(1)}</b> ${esc(e.place)}<br>Prof: ${e.depth_km??'?'} km<br>${fmt(e.time_event)}<br>Fuente: ${e.source} (${esc(e.status)})<br>${e.url?`<a href="${esc(e.url)}" target="_blank" rel="noopener">Registro original</a>`:''}`).addTo(layer));
+ const d=Date.now(),n=h=>data.filter(e=>d-new Date(e.time_event)<h*36e5).length;
+ const mx=data.reduce((a,e)=>Math.max(a,e.mag),0),pr=data.length?data.reduce((a,e)=>a+(e.depth_km||0),0)/data.length:0;
+ $('kpis').innerHTML=[['En vista',data.length],['Últimas 24 h',n(24)],['Últimos 7 días',n(168)],['Mag. máx',data.length?mx.toFixed(1):'–'],['Prof. media',data.length?pr.toFixed(0)+' km':'–']].map(([a,b])=>`<div class="card kpi"><small>${a}</small><b>${b}</b></div>`).join('');
+ $('list').innerHTML=data.slice(0,60).map(e=>`<div class="ev"><span class="m" style="color:${col(e.mag)}">M${e.mag.toFixed(1)}</span> ${esc(e.place)}<br><small>${fmt(e.time_event)} · ${e.depth_km??'?'} km · ${e.source}</small></div>`).join('')||'Sin eventos para este filtro.';
+ chart()}
+function chart(){const c=$('ch'),x=c.getContext('2d');c.width=c.clientWidth;c.height=150;x.clearRect(0,0,c.width,150);
+ const b={};data.forEach(e=>{const k=e.time_event.slice(0,10);b[k]=(b[k]||0)+1});const ks=Object.keys(b).sort(),mx=Math.max(1,...Object.values(b)),w=c.width/Math.max(ks.length,1);
+ ks.forEach((k,i)=>{const h=b[k]/mx*120;x.fillStyle='#FF3038';x.fillRect(i*w+2,140-h,Math.max(w-4,1),h)});x.fillStyle='#9aa4b2';x.fillText(ks[0]||'',2,149)}
+async function sources(){try{const s=await (await fetch('/api/sources')).json();
+ $('src').innerHTML=s.sources.map(x=>`<div><b>${x.name}</b> <span class="st-${x.state}">${x.state}</span><br><small>${x.last_ok?'Última consulta OK: '+fmt(x.last_ok)+' · ':''}${x.processed!=null?x.processed+' procesados, '+x.rejected+' rechazados · ':''}${x.latency_ms!=null?x.latency_ms+' ms':''} ${esc(x.error||x.frequency||'')}</small></div>`).join('<hr>')+`<small>Registros en BD: ${s.db_records} · Backend: ${s.backend}</small>`}catch(e){$('src').textContent='Backend desconectado'}}
+async function alerts(){try{const a=await (await fetch('/api/alerts')).json();$('alerts').innerHTML=a.map(al).join('')||'<small>Sin alertas desde que inició el servidor.</small>'}catch(e){}}
+const al=a=>`<div class="al l-${a.level}"><b>${a.level.toUpperCase()}</b> M${a.mag.toFixed(1)}<br>${esc(a.message)}<br><small>${fmt(a.time_event)} · ${a.depth_km??'?'} km · ${a.source} · ${esc(a.verification)}</small></div>`;
+function live(){const es=new EventSource('/api/stream');es.onmessage=m=>{const d=JSON.parse(m.data);load();alerts();
+ if(d.alert&&$('snd').checked){const c=new AudioContext(),o=c.createOscillator();o.connect(c.destination);o.start();o.stop(c.currentTime+.4)}};}
+$('hours').onchange=$('mag').onchange=load;$('center').onclick=()=>map.setView(CO,5);
+load();alerts();live();setInterval(sources,30000);
+</script><script>if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")</script></body></html>
